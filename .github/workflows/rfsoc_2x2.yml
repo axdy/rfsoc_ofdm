@@ -1,0 +1,27 @@
+name: Vivado Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-RFSoC2x2:
+    runs-on: [self-hosted, linux, x64] # Customize this line based on your runner's tags
+
+    steps:
+    - uses: actions/checkout@v2
+      name: Checkout code
+
+    - name: Setup Vivado
+      run: |
+        # Setup Vivado environment
+        source /tools/Xilinx/Vivado/2022.1/settings64.sh
+
+    - name: Run Vivado Build
+      run: |
+        cd boards/RFSoC2x2/rfsoc_ofdm/
+        make all
