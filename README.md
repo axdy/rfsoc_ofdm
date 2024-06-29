@@ -67,5 +67,8 @@ Alternatively, you can run the entire project build by executing the following i
 make all
 ```
 
+## Github Actions
+Testing to see if Github actions will work now.
+
 ## License
 [BSD 3-Clause](/LICENSE)
