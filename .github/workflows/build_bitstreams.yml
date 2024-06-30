@@ -13,7 +13,7 @@ jobs:
     runs-on: [self-hosted, linux, x64] # Customize this line based on your runner's tags
     strategy:
       matrix:
-        boards: [ZCU208]
+        boards: [RFSoC4x2, ZCU208]
       fail-fast: false
     steps:
     - uses: actions/checkout@main
