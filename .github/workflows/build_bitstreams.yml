@@ -11,7 +11,9 @@ on:
 jobs:
   build-RFSoC2x2:
     runs-on: [self-hosted, linux, x64] # Customize this line based on your runner's tags
-
+    strategy:
+      matrix:
+        boards: [ZCU208]
     steps:
     - uses: actions/checkout@main
       name: Checkout code
@@ -19,5 +21,5 @@ jobs:
     - name: Run Vivado Build
       run: |
         source /tools/Xilinx/Vivado/2020.2/settings64.sh
-        cd boards/RFSoC2x2/rfsoc_ofdm/
+        cd boards/${{ matrix.boards }}/rfsoc_ofdm/
         make all
