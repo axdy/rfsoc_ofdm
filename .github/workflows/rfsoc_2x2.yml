@@ -13,15 +13,11 @@ jobs:
     runs-on: [self-hosted, linux, x64] # Customize this line based on your runner's tags
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@main
       name: Checkout code
-
-    - name: Setup Vivado
-      run: |
-        # Setup Vivado environment
-        source /tools/Xilinx/Vivado/2020.2/settings64.sh
 
     - name: Run Vivado Build
       run: |
+        source /tools/Xilinx/Vivado/2020.2/settings64.sh
         cd boards/RFSoC2x2/rfsoc_ofdm/
         make all
