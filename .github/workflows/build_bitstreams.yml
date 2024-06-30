@@ -29,6 +29,7 @@ jobs:
     # Compress the project directory
     - name: Compress Project
       run: |
+        touch rfsoc_ofdm.tar.gz
         tar -czvf rfsoc_ofdm.tar.gz .
 
     - uses: actions/upload-artifact@v2
