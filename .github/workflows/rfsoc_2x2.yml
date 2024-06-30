@@ -19,7 +19,7 @@ jobs:
     - name: Setup Vivado
       run: |
         # Setup Vivado environment
-        source /tools/Xilinx/Vivado/2022.1/settings64.sh
+        source /tools/Xilinx/Vivado/2020.2/settings64.sh
 
     - name: Run Vivado Build
       run: |
