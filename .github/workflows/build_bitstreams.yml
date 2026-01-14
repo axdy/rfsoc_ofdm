@@ -111,8 +111,8 @@ jobs:
           path: ${{ env.TAR_PATH }}
           retention-days: 7
 
-      - name: Cleanup workspace
-        if: always()
-        shell: bash
-        run: |
-          rm -rf "$GITHUB_WORKSPACE"
+      # - name: Cleanup workspace
+      #   if: always()
+      #   shell: bash
+      #   run: |
+      #     rm -rf "$GITHUB_WORKSPACE"
