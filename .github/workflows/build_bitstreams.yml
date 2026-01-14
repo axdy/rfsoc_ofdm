@@ -90,18 +90,29 @@ jobs:
           make all
           cd ../../..
 
-      - name: Create per-board tarball
+      - name: Create per-board tarball (in RUNNER_TEMP)
         shell: bash
         run: |
           TAR="rfsoc_ofdm_${{ matrix.boards }}_${{ github.sha }}.tar.gz"
-          tar -czf "$TAR" \
+          TAR_PATH="${RUNNER_TEMP}/${TAR}"
+
+          tar -czf "$TAR_PATH" \
+            --warning=no-file-changed \
             --exclude=".git" --exclude=".github" --exclude="**/.Xil" \
             --exclude="**/*.jou" --exclude="**/*.log" \
             .
-          echo "TAR=$TAR" >> "$GITHUB_ENV"
+
+          echo "TAR_PATH=$TAR_PATH" >> "$GITHUB_ENV"
+          echo "Created: $TAR_PATH"
 
       - uses: actions/upload-artifact@v4
         with:
           name: bitstream-archive-${{ matrix.boards }}
-          path: ${{ env.TAR }}
+          path: ${{ env.TAR_PATH }}
           retention-days: 7
+
+      - name: Cleanup workspace
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$GITHUB_WORKSPACE"
