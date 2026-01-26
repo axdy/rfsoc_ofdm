@@ -11,41 +11,102 @@ on:
         description: "OPTIONAL override: full path to settings64.sh on this runner"
         required: false
         default: ""
+
+  # Only trigger automatically when bitstream inputs change (NOT docs/README edits)
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
+    paths:
+      - "ip/**"
+      - "boards/**/rfsoc_ofdm/rfsoc_ofdm.tcl"
+      - "boards/**/rfsoc_ofdm/constraints.xdc"
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: read
 
 jobs:
   prep-matrix:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.mk.outputs.matrix }}
+      should_run: ${{ steps.mk.outputs.should_run }}
     steps:
+      - uses: actions/checkout@v4
+
       - id: mk
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          allowed="ZCU111 ZCU208 ZCU216 RFSoC2x2 RFSoC4x2"
-          boards_in="${{ github.event.inputs.boards }}"
-          if [ -z "$boards_in" ]; then boards_in="RFSoC4x2,ZCU208"; fi
-          if [ "$boards_in" = "all" ]; then
-            boards="$allowed"
+          set -euo pipefail
+
+          allowed="ZCU111 ZCU208 RFSoC2x2 ZCU216 RFSoC4x2"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            boards_in="${{ github.event.inputs.boards }}"
+            if [ -z "$boards_in" ]; then boards_in="RFSoC4x2,ZCU208,ZCU111,RFSoC2x2,ZCU216"; fi
+            if [ "$boards_in" = "all" ]; then
+              boards="$allowed"
+            else
+              boards="$(echo "$boards_in" | tr ',' ' ')"
+            fi
+
           else
-            boards=$(echo "$boards_in" | tr ',' ' ')
+            pr_number="${{ github.event.pull_request.number }}"
+
+            files="$(gh api "/repos/${{ github.repository }}/pulls/${pr_number}/files" \
+              --paginate --jq '.[].filename')"
+
+            echo "Changed files:"
+            echo "$files"
+
+            # If any shared IP changed, rebuild everything
+            if echo "$files" | grep -qE '^ip/'; then
+              boards="$allowed"
+            else
+              # Otherwise, rebuild only the boards whose TCL/XDC changed
+              boards="$(echo "$files" \
+                | grep -E '^boards/[^/]+/rfsoc_ofdm/(rfsoc_ofdm\.tcl|constraints\.xdc)$' \
+                | sed -E 's|^boards/([^/]+)/.*|\1|' \
+                | sort -u || true)"
+            fi
           fi
+
+          # Nothing relevant changed -> skip build job
+          if [ -z "${boards:-}" ]; then
+            echo "No relevant changes detected; skipping build."
+            echo 'matrix={"boards":[]}' >> "$GITHUB_OUTPUT"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Validate boards list
           for b in $boards; do
-            ok=0; for a in $allowed; do [ "$b" = "$a" ] && ok=1; done
+            ok=0
+            for a in $allowed; do
+              [ "$b" = "$a" ] && ok=1
+            done
             [ $ok -eq 1 ] || (echo "Invalid board: $b. Allowed: $allowed" && exit 1)
           done
-          json='{"boards":['; first=1
+
+          # Build JSON matrix
+          json='{"boards":['
+          first=1
           for b in $boards; do
             [ $first -eq 1 ] || json+=','
-            json+="\"$b\""; first=0
+            json+="\"$b\""
+            first=0
           done
           json+=']}'
+
           echo "matrix=$json" >> "$GITHUB_OUTPUT"
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "Matrix: $json"
 
   build-bitstream:
     needs: prep-matrix
-    if: ${{ github.event_name == 'workflow_dispatch' || github.base_ref == 'main' }}
+    if: ${{ needs.prep-matrix.outputs.should_run == 'true' }}
     runs-on: [self-hosted, linux, x64]
     strategy:
       fail-fast: false
@@ -85,14 +146,18 @@ jobs:
       - name: Run Vivado Build
         shell: bash
         run: |
+          set -euo pipefail
           source "$VIVADO_SETTINGS_RESOLVED"
-          cd boards/${{ matrix.boards }}/rfsoc_ofdm/
+          cd "boards/${{ matrix.boards }}/rfsoc_ofdm/"
+          rm -rf bitstream/
           make all
           cd ../../..
 
       - name: Create per-board tarball (in RUNNER_TEMP)
         shell: bash
         run: |
+          set -euo pipefail
+
           TAR="rfsoc_ofdm_${{ matrix.boards }}_${{ github.sha }}.tar.gz"
           TAR_PATH="${RUNNER_TEMP}/${TAR}"
 
@@ -111,8 +176,36 @@ jobs:
           path: ${{ env.TAR_PATH }}
           retention-days: 7
 
-      # - name: Cleanup workspace
-      #   if: always()
-      #   shell: bash
-      #   run: |
-      #     rm -rf "$GITHUB_WORKSPACE"
+      # Check if it works on hardware
+      - name: Create pending HW check (PR only)
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          SHA: ${{ github.sha }}
+          BOARD: ${{ matrix.boards }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="HW Test (${BOARD})"
+
+          # If it already exists (reruns), don't create duplicates.
+          existing_id="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${OWNER}/${REPO}/commits/${SHA}/check-runs" \
+            --jq ".check_runs[] | select(.name==\"${NAME}\") | .id" | head -n 1 || true)"
+
+          if [ -n "${existing_id:-}" ]; then
+            echo "Check already exists: ${NAME} (id=${existing_id}). Skipping create."
+            exit 0
+          fi
+
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${OWNER}/${REPO}/check-runs" \
+            -f name="${NAME}" \
+            -f head_sha="${SHA}" \
+            -f status="in_progress" \
+            -f "output[title]=Manual hardware test required" \
+            -f "output[summary]=Download artifact bitstream-archive-${BOARD} from this workflow run, test on ${BOARD}, then comment on the PR:\n\n- /hw-pass ${BOARD}\n- /hw-fail ${BOARD} <reason>\n- /hw-skip ${BOARD} <reason>"
