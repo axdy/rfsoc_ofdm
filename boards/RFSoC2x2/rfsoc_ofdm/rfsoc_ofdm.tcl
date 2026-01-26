@@ -46,6 +46,11 @@ if { $list_projs eq "" } {
    create_project project_1 myproj -part xczu28dr-ffvg1517-2-e
 }
 
+# Add IP repository path
+set_property ip_repo_paths "../../ip" [current_project]
+
+# Update IP catalog
+update_ip_catalog
 
 # CHANGE DESIGN NAME HERE
 variable design_name
